@@ -45,11 +45,17 @@ def add_spike_and_slab_error(
     return x + misspecified * slab + (1 - misspecified) * spike
 
 
-def run_rnpe_misspec_ma1():
+def run_rnpe_misspec_ma1(args):
     print('sss')
+    seed = args.seed
+    folder_name = "res/misspec_ma1/seed_{}/".format(seed)
+
+    isExist = os.path.exists(folder_name)
+    if not isExist:
+        os.makedirs(folder_name)
+
     denoiser = spike_and_slab_denoiser_hyperprior
     misspecified = True
-    seed = 1
     n_sim = 10_000
     key, sub_key = random.split(random.PRNGKey(seed))
 
@@ -180,17 +186,25 @@ def run_rnpe_misspec_ma1():
     }
     results = rescale_results(results)
 
-    fname = f"results/misspec_ma1_seed_{str(seed)}.pkl"
+    fname = f"{folder_name}thetas.pkl"
 
     with open(fname, "wb") as f:
         pickle.dump(results, f)
 
     rnpe_samples = results['posterior_samples']['RNPE']
-    for i in range(0):
+    for i in range(1):
         plt.hist(rnpe_samples[:, i].flatten(), bins=50)
-        plt.savefig("rnpe_samples_" + str(i) + ".png")
+        plt.savefig(f"{folder_name}rnpe_samples_{str(i)}.png")
         plt.clf()
 
 
 if __name__ == '__main__':
-    run_rnpe_misspec_ma1()
+    parser = argparse.ArgumentParser(
+        prog='run_rnpe_misspec_ma1.py',
+        description='Run inference on misspecified MA(1) example with RNPE.',
+        epilog='Example: python run_rnpe_misspec_ma1.py'
+        )
+    parser.add_argument('--seed', type=int, default=0)
+    args = parser.parse_args()
+
+    run_rnpe_misspec_ma1(args)
