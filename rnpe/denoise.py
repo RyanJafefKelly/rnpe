@@ -14,19 +14,28 @@ from numpyro.distributions import (
 
 
 class FlowDist(Distribution):
-    "Wraps flow as numpyro compatible distribution for MCMC."
-    support = constraints.real
+    """A class to allow a flowjax flow to be used in numpyro.
 
-    def __init__(self, flow: FlowJaxDist):
+    Args:
+        dist (numpyro.distribution.Distribution): numpyro distribution.
+    """
+    support = constraints.real
+    def __init__(self, flow=None, theta=None):
+        """Initialize the flow."""
         self.flow = flow
-        super().__init__(batch_shape=(), event_shape=(flow.dim,))
+        self.theta = theta
+        super(FlowDist, self).__init__()
+
 
     def sample(self, key, sample_shape=()):
         raise NotImplementedError()
 
+    # @validate_sample
     def log_prob(self, value):
-        batch_size = value.shape[:-1]
-        value = value.reshape(-1, self.flow.dim)
+        """Evaluate the log density of the neural likelihood."""
+        batch_size = 1  # TODO!!!
+        # batch_size = value.shape[:-1]
+        # value = value.reshape(-1, self.flow.dim)
         return self.flow.log_prob(value).reshape(batch_size)
 
 
