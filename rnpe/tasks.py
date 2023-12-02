@@ -35,7 +35,9 @@ class Task(ABC):
         theta_key, x_key, obs_key = random.split(key, 3)
         theta = self.sample_prior(theta_key, n)
         x = self.simulate(x_key, theta)
-        x = remove_nans_and_warn(x)
+        nan_idx = remove_nans_and_warn_idx(x)
+        x = x[~nan_idx]
+        theta = theta[~nan_idx]
         theta_true, y, y_raw = self.generate_observation(
             obs_key, misspecified=misspecified
         )
@@ -194,7 +196,7 @@ class MisspecifiedMA1(Task):
 
     def generate_observation(self, key: random.PRNGKey, misspecified=True):
         theta_key, y_key = random.split(key)
-        theta_true = self.sample_prior(theta_key, 1)
+        theta_true = self.sample_prior(theta_key, 1)  # NOTE: ... nonsense
         # Simulate observation from the true model or a misspecified model
         if misspecified:
             y = self.true_dgp(y_key)
@@ -381,6 +383,7 @@ class SIR(Task):
     def generate_observation(self, key: random.PRNGKey, misspecified=True):
         theta_key, y_key = random.split(key)
         theta_true = self.sample_prior(theta_key, 1)
+        theta_true = jnp.array([[0.15, 0.1]])
         y_raw = self.simulate(y_key, theta_true, summarise=False)
         y_raw = self.misspecify(y_raw) if misspecified else y_raw
         y = self.summarise(y_raw)
@@ -555,3 +558,65 @@ def remove_nans_and_warn(x):
         x = x[~nan_rows]
         print(f"Warning {n_nan} simulations contained NAN values have been removed.")
     return x
+
+def remove_nans_and_warn_idx(x):
+    # TODO: ryan func
+    nan_rows = jnp.any(jnp.isnan(x), axis=1)
+    # n_nan = nan_rows.sum()
+    # if n_nan > 0:
+    #     x = x[~nan_rows]
+    #     print(f"Warning {n_nan} simulations contained NAN values have been removed.")
+    return nan_rows
+
+
+
+class ContaminatedSLCP(Task):
+    """
+    Class to represent the contaminated simple likelihood complex posterior (SLCP) model.
+    """
+
+    def __init__(self, num_draws: int = 5, misspec_level: float = 1.0):
+        self.num_draws = num_draws
+        self.misspec_level = misspec_level
+        self.theta_names = [r"$\theta_1$", r"$\theta_2$", r"$\theta_3$", r"$\theta_4$", r"$\theta_5$"]
+        self.prior_bounds = (-3.0, 3.0)
+
+    def sample_prior(self, key: random.PRNGKey, n: int):
+        low, high = self.prior_bounds
+        return dist.Uniform(low, high).sample(key=key, sample_shape=(n, 5))
+
+    def simulate(self, key: random.PRNGKey, theta: jnp.ndarray, misspecified: bool = False):
+        num_samples = theta.shape[0]
+        samples = jnp.zeros((num_samples, self.num_draws * 2))
+
+        for i in range(num_samples):
+            t1, t2, t3, t4, t5 = theta[i]
+            m_theta = jnp.array([t1, t2])
+            s1, s2 = t3 ** 2, t4 ** 2
+            rho = jnp.tanh(t5)
+            cov_mat = jnp.array([[s1, rho * s1 * s2], [rho * s1 * s2, s2]])
+            draw_key, key = random.split(key)
+            sample = dist.MultivariateNormal(m_theta, cov_mat).sample(key=draw_key, sample_shape=(self.num_draws,)).flatten()
+            samples = samples.at[i].set(sample)
+            # if jnp.any(jnp.isnan(sample)):
+            #     samples = samples.at[i].set(1e+4*jnp.ones_like(sample))
+
+            if misspecified:
+                samples = samples.at[i].set(self.apply_misspecification(samples[i], key))
+        return samples
+
+    def apply_misspecification(self, x, key):
+        noise_scale = 100
+        noise_key, _ = random.split(key)
+        noise = dist.Normal(0, noise_scale).sample(key=noise_key, sample_shape=x.shape)
+        return x + self.misspec_level * noise
+
+    def calculate_summary_statistics(self, x):
+        return x  # In this model, data is used directly as summary statistics.
+
+    def generate_observation(self, key: random.PRNGKey, misspecified: bool = True):
+        theta_key, sim_key = random.split(key)
+        theta_true = self.sample_prior(theta_key, 1)
+        theta_true = jnp.array([[0.7, -2.9, -1.0, -0.9,  0.6]])  # TODO: MANUALLY SET
+        observation = self.simulate(sim_key, theta_true, misspecified)
+        return theta_true, observation, None

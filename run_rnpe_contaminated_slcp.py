@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from jax import random
 from numpyro.infer import MCMC, HMC, MixedHMC, init_to_value
 from rnpe.denoise import spike_and_slab_denoiser, spike_and_slab_denoiser_hyperprior
-from rnpe.tasks import MisspecifiedMA1
+from rnpe.tasks import ContaminatedSLCP
 # from rnpe.metrics import calculate_metrics
 from time import time
 import pickle
@@ -45,10 +45,10 @@ def add_spike_and_slab_error(
     return x + misspecified * slab + (1 - misspecified) * spike
 
 
-def run_rnpe_misspec_ma1(args):
+def run_rnpe_contaminated_slcp(args):
     print('sss')
     seed = args.seed
-    folder_name = "res/misspec_ma1/seed_{}/".format(seed)
+    folder_name = "res/contaminated_slcp/seed_{}/".format(seed)
 
     isExist = os.path.exists(folder_name)
     if not isExist:
@@ -60,16 +60,16 @@ def run_rnpe_misspec_ma1(args):
     key, sub_key = random.split(random.PRNGKey(seed))
 
     # get simulated data
-    misspec_ma1 = MisspecifiedMA1()
-    data = misspec_ma1.generate_dataset(key=sub_key,
+    contaminated_slcp = ContaminatedSLCP()
+    data = contaminated_slcp.generate_dataset(key=sub_key,
                                     n=n_sim,
                                     misspecified=misspecified)
 
     # Train marginal likelihood flow
-    pseudo_true_param = jnp.array([0.0])
+    # pseudo_true_param = jnp.array([0.0])
     key, flow_key, train_key = random.split(key, 3)
-    theta_dims = 1
-    summary_dims = 2
+    theta_dims = 5
+    summary_dims = 10
     base_dist = StandardNormal((summary_dims,))
     x_flow = BlockNeuralAutoregressiveFlow(flow_key,
                                         base_dist=base_dist,  # TODO?
@@ -90,7 +90,7 @@ def run_rnpe_misspec_ma1(args):
 
     # TODO: being a bit generous with initial ... stop painful initialisation
     init = init_to_value(
-        values={"x": data["y"], "misspecified": jnp.ones(2)}
+        values={"x": data["y"], "misspecified": jnp.ones(summary_dims)}
     )
 
     kernel = MixedHMC(
@@ -131,7 +131,7 @@ def run_rnpe_misspec_ma1(args):
     posterior_flow, npe_losses = fit_to_data(
         key=train_key,
         dist=posterior_flow,
-        x=data["theta"].reshape((-1, 1)),
+        x=data["theta"].reshape((-1, theta_dims)),
         condition=data["x"],
         max_epochs=max_epochs,
         learning_rate=0.0005,
@@ -144,7 +144,7 @@ def run_rnpe_misspec_ma1(args):
     noisy_posterior_flow, npe_losses = fit_to_data(
         key=train_key,
         dist=posterior_flow,
-        x=data["theta"].reshape((-1, 1)),
+        x=data["theta"].reshape((-1, theta_dims)),
         condition=noisy_sims,
         max_epochs=max_epochs,
         learning_rate=0.0005,
@@ -181,7 +181,7 @@ def run_rnpe_misspec_ma1(args):
             "NPE": naive_npe_samples,
             "NNPE": noisy_npe_samples,
         },
-        "scales": misspec_ma1.scales,
+        "scales": contaminated_slcp.scales,
         "losses": {"x": x_losses, "theta|x": npe_losses},
     }
     results = rescale_results(results)
@@ -192,19 +192,19 @@ def run_rnpe_misspec_ma1(args):
         pickle.dump(results, f)
 
     rnpe_samples = results['posterior_samples']['RNPE']
-    for i in range(1):
-        plt.hist(rnpe_samples[:, i].flatten(), bins=50)
+    for i in range(theta_dims):
+        plt.hist(rnpe_samples[:, :, i].flatten(), bins=50)
         plt.savefig(f"{folder_name}rnpe_samples_{str(i)}.png")
         plt.clf()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        prog='run_rnpe_misspec_ma1.py',
-        description='Run inference on misspecified MA(1) example with RNPE.',
-        epilog='Example: python run_rnpe_misspec_ma1.py'
+        prog='run_rnpe_contaminated_slcp.py',
+        description='Run inference on contaminated_slcp example with RNPE.',
+        epilog='Example: python run_rnpe_contaminated_slcp.py'
         )
     parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()
 
-    run_rnpe_misspec_ma1(args)
+    run_rnpe_contaminated_slcp(args)

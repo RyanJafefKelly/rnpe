@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from jax import random
 from numpyro.infer import MCMC, HMC, MixedHMC, init_to_value
 from rnpe.denoise import spike_and_slab_denoiser, spike_and_slab_denoiser_hyperprior
-from rnpe.tasks import MisspecifiedMA1
+from rnpe.tasks import Gaussian
 # from rnpe.metrics import calculate_metrics
 from time import time
 import pickle
@@ -45,10 +45,10 @@ def add_spike_and_slab_error(
     return x + misspecified * slab + (1 - misspecified) * spike
 
 
-def run_rnpe_misspec_ma1(args):
+def run_rnpe_contaminated_normal(args):
     print('sss')
     seed = args.seed
-    folder_name = "res/misspec_ma1/seed_{}/".format(seed)
+    folder_name = "res/contaminated_normal/seed_{}/".format(seed)
 
     isExist = os.path.exists(folder_name)
     if not isExist:
@@ -60,13 +60,13 @@ def run_rnpe_misspec_ma1(args):
     key, sub_key = random.split(random.PRNGKey(seed))
 
     # get simulated data
-    misspec_ma1 = MisspecifiedMA1()
-    data = misspec_ma1.generate_dataset(key=sub_key,
+    contaminated_normal = Gaussian()
+    data = contaminated_normal.generate_dataset(key=sub_key,
                                     n=n_sim,
                                     misspecified=misspecified)
 
     # Train marginal likelihood flow
-    pseudo_true_param = jnp.array([0.0])
+    # pseudo_true_param = jnp.array([0.0])
     key, flow_key, train_key = random.split(key, 3)
     theta_dims = 1
     summary_dims = 2
@@ -181,7 +181,7 @@ def run_rnpe_misspec_ma1(args):
             "NPE": naive_npe_samples,
             "NNPE": noisy_npe_samples,
         },
-        "scales": misspec_ma1.scales,
+        "scales": contaminated_normal.scales,
         "losses": {"x": x_losses, "theta|x": npe_losses},
     }
     results = rescale_results(results)
@@ -200,11 +200,11 @@ def run_rnpe_misspec_ma1(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        prog='run_rnpe_misspec_ma1.py',
-        description='Run inference on misspecified MA(1) example with RNPE.',
-        epilog='Example: python run_rnpe_misspec_ma1.py'
+        prog='run_rnpe_contaminated_normal.py',
+        description='Run inference on contaminated normal example with RNPE.',
+        epilog='Example: python run_rnpe_contaminated_normal.py'
         )
-    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--seed', type=int, default=1)
     args = parser.parse_args()
 
-    run_rnpe_misspec_ma1(args)
+    run_rnpe_contaminated_normal(args)
