@@ -114,7 +114,8 @@ class Gaussian(Task):
 
     def generate_observation(self, key: random.PRNGKey, misspecified=True):
         theta_key, y_key = random.split(key)
-        theta_true = self.sample_prior(theta_key, 1)
+        # theta_true = self.sample_prior(theta_key, 1)
+        theta_true = jnp.array([1.0])  # TODO: MANUAL
         var = self.dgp_var if misspecified else self.likelihood_var
         y_demean = random.normal(
             y_key, (theta_true.shape[0], self.x_raw_dim)
@@ -616,7 +617,7 @@ class ContaminatedSLCP(Task):
 
     def generate_observation(self, key: random.PRNGKey, misspecified: bool = True):
         theta_key, sim_key = random.split(key)
-        theta_true = self.sample_prior(theta_key, 1)
+        # theta_true = self.sample_prior(theta_key, 1)
         theta_true = jnp.array([[0.7, -2.9, -1.0, -0.9,  0.6]])  # TODO: MANUALLY SET
         observation = self.simulate(sim_key, theta_true, misspecified)
         return theta_true, observation, None
