@@ -115,7 +115,7 @@ class Gaussian(Task):
     def generate_observation(self, key: random.PRNGKey, misspecified=True):
         theta_key, y_key = random.split(key)
         # theta_true = self.sample_prior(theta_key, 1)
-        theta_true = jnp.array([1.0])  # TODO: MANUAL
+        theta_true = jnp.array([[1.0]])  # TODO: MANUAL
         var = self.dgp_var if misspecified else self.likelihood_var
         y_demean = random.normal(
             y_key, (theta_true.shape[0], self.x_raw_dim)
