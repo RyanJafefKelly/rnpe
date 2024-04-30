@@ -203,7 +203,7 @@ if __name__ == '__main__':
         description='Run inference on misspecified MA(1) example with RNPE.',
         epilog='Example: python run_rnpe_sir.py'
         )
-    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--seed', type=int, default=24)
     args = parser.parse_args()
 
     run_rnpe_sir(args)

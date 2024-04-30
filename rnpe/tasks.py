@@ -29,15 +29,15 @@ class Task(ABC):
         pass
 
     def generate_dataset(
-        self, key: random.PRNGKey, n: int, scale=True, misspecified=True,
+        self, key: random.PRNGKey, n: int, scale=True, misspecified=True
     ):
         "Generate optionally scaled dataset with pseudo-observed value and simulations"
         theta_key, x_key, obs_key = random.split(key, 3)
         theta = self.sample_prior(theta_key, n)
         x = self.simulate(x_key, theta)
-        nan_idx = remove_nans_and_warn_idx(x)
-        x = x[~nan_idx]
-        theta = theta[~nan_idx]
+        valid_idx = get_valid_idx(x)
+        x = x[valid_idx]
+        theta = theta[valid_idx]
         theta_true, y, y_raw = self.generate_observation(
             obs_key, misspecified=misspecified
         )
@@ -560,14 +560,17 @@ def remove_nans_and_warn(x):
         print(f"Warning {n_nan} simulations contained NAN values have been removed.")
     return x
 
-def remove_nans_and_warn_idx(x):
+def get_valid_idx(x):
     # TODO: ryan func
-    nan_rows = jnp.any(jnp.isnan(x), axis=1)
+    d1, *_ = x.shape
+    x = x.reshape(d1, -1)
+    valid_idx = jnp.all(jnp.isfinite(x), axis=1)
+
     # n_nan = nan_rows.sum()
     # if n_nan > 0:
     #     x = x[~nan_rows]
     #     print(f"Warning {n_nan} simulations contained NAN values have been removed.")
-    return nan_rows
+    return valid_idx
 
 
 
@@ -620,4 +623,87 @@ class ContaminatedSLCP(Task):
         # theta_true = self.sample_prior(theta_key, 1)
         theta_true = jnp.array([[0.7, -2.9, -1.0, -0.9,  0.6]])  # TODO: MANUALLY SET
         observation = self.simulate(sim_key, theta_true, misspecified)
+        return theta_true, observation, None
+
+
+# Note: Ryan add
+class SVAR(Task):
+    def __init__(self, n_time_series=1000):
+        self.n_time_series = n_time_series
+        self.correlated_pairs = (
+            (0, 1),
+            (3, 1),
+            (4, 2)
+        )
+
+
+    def sample_prior(self, key: random.PRNGKey, n: int):
+        uniform_key, _ = random.split(key, 2)
+        uniform_samples_standard = random.uniform(uniform_key, (n, 7))  # MAGIC NUMBER 7 - num params
+
+        shift = jnp.array([1.0]*6 + [0.0])
+        scale = jnp.array([2.0] * 6 + [1.0])
+
+        uniform_samples = uniform_samples_standard * scale - shift
+        return uniform_samples
+
+    def simulate(self, key: random.PRNGKey, thetas: jnp.ndarray):
+        n_sim, n_params = thetas.shape
+        n_time_series = self.n_time_series
+        X_2d = -0.1 * jnp.eye(n_params - 1)
+        X = jnp.repeat(X_2d[jnp.newaxis, :, :], n_sim, axis=0)  # TODO: Magic
+
+        counter = 0
+        for i, j in self.correlated_pairs:
+            X = X.at[:, i, j].set(thetas[:, counter])
+            X = X.at[:, j, i].set(thetas[:, counter])
+            counter += 1
+
+        sigma = thetas[-1]
+        key, subkey = random.split(key)
+        Y0 = random.normal(subkey, (n_sim, n_params-1))
+        Y = jnp.zeros((n_sim, n_params-1, n_time_series))
+        Y = Y.at[:, :, 0].set(Y0)
+        first_iter = jnp.einsum('nij,ni->ni', X, Y0)
+        Y = Y.at[:, :, 1].set(first_iter)
+        for i in range(2, n_time_series):
+            key, subkey = random.split(key)
+            iter_res = jnp.einsum('nij, ni->ni', X, Y[:, :, i-1])
+            noise = random.normal(subkey, (n_sim, n_params-1)) * sigma[i]
+            Y = Y.at[:, :, i].set(iter_res + noise)
+
+        ssx = self.summarise(Y)
+        return ssx
+
+    def apply_misspecification(self, x, key):
+        # TODO!!
+        return x
+
+    def summarise(self, Y):
+        n_sim, _, n_time_series = Y.shape
+        ssx = jnp.zeros((n_sim, 7))  # TODO: 7 MAGIC
+
+        counter = 0
+        for i, j in self.correlated_pairs:
+            # autocovariance summaries
+            autocov1 = jnp.mean(Y[:, i, 1:] * Y[:, j, 0:-1], axis=1)
+            ssx = ssx.at[:, counter].set(autocov1)
+            counter += 1
+
+            autocov2 = jnp.mean(Y[:, j, 1:] * Y[:, i, 0:-1], axis=1)
+            ssx = ssx.at[:, counter].set(autocov2)
+            counter += 1
+
+        # def flatten_then_std(x):
+        #     return jnp.std(x.flatten())
+        Y = Y.reshape(n_sim, -1)
+        ssx = ssx.at[:, counter].set(jnp.std(Y, axis=1))
+
+        return ssx
+
+    def generate_observation(self, key: random.PRNGKey, misspecified=True):
+        theta_true = jnp.array([[0.5787, -0.1435, 0.8356, 0.7447,
+                                -0.6602, -0.2538, 0.1]])
+        observation = self.simulate(key, theta_true)
+        # summaries = self.summarise(observation)
         return theta_true, observation, None
